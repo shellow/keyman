@@ -1,21 +1,319 @@
 package main
 
 import (
-	"go.uber.org/zap"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"github.com/prometheus/common/log"
+	"github.com/shellow/keyman"
 	"github.com/urfave/cli"
+	"go.uber.org/zap"
+	"io/ioutil"
+	"net/http"
+	"os"
 )
 
 var Logger *zap.SugaredLogger
 
 var HOSTURL string
+var KEY string
 
 func main() {
-	var language string
-
 	app := cli.NewApp()
 	app.Name = "Key manage"
-	app.Usage = "hello world"
-	app.Version = "1.2.3"
+	app.Usage = "Key manage"
+	app.Version = "1.0.0"
+	app.Flags = []cli.Flag{
+		//cli.IntFlag{
+		//	Name:  "port, p",
+		//	Value: 8000,
+		//	Usage: "listening port",
+		//},
+		cli.StringFlag{
+			Name:        "surl, s",
+			Value:       "http://127.0.0.1",
+			Usage:       "server url",
+			Destination: &HOSTURL,
+		},
+		cli.StringFlag{
+			Name:        "key, k",
+			Value:       "key",
+			Usage:       "server key",
+			Destination: &KEY,
+		},
+	}
+	app.Commands = []cli.Command{
+		{
+			Name:     "list",
+			Usage:    "list keys",
+			Category: "manage",
+			Action:   listkey,
+		},
+		{
+			Name:     "add",
+			Usage:    "add key",
+			Category: "manage",
+			Action:   addkey,
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:  "hkey, hk",
+					Value: "1",
+					Usage: "key for add",
+				},
+				cli.StringFlag{
+					Name:  "hkeyname, kn",
+					Value: "key",
+					Usage: "key name",
+				},
+			},
+		},
+		{
+			Name:     "enable",
+			Usage:    "enable key",
+			Category: "manage",
+			Action:   enablekey,
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:  "hkey, hk",
+					Value: "1",
+					Usage: "key for add",
+				},
+				cli.StringFlag{
+					Name:  "day",
+					Value: "10",
+					Usage: "Time limit",
+				},
+				cli.StringFlag{
+					Name:  "num",
+					Value: "10",
+					Usage: "Limit of times",
+				},
+			},
+		},
+		{
+			Name:     "get",
+			Usage:    "get key",
+			Category: "manage",
+			Action:   getkey,
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:  "hkey, hk",
+					Value: "1",
+					Usage: "key for get",
+				},
+			},
+		},
+		{
+			Name:     "dis",
+			Usage:    "dis key",
+			Category: "manage",
+			Action:   diskey,
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:  "hkey, hk",
+					Value: "1",
+					Usage: "key for dis",
+				},
+			},
+		},
+		{
+			Name:     "del",
+			Usage:    "del key",
+			Category: "manage",
+			Action:   delkey,
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:  "hkey, hk",
+					Value: "1",
+					Usage: "key for del",
+				},
+			},
+		},
+	}
 
+	err := app.Run(os.Args)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
+func listkey(c *cli.Context) error {
+	murl := c.GlobalString("surl")
+	murl = murl + "/evimem/listkey"
+	req, err := http.NewRequest("GET", murl, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("key", KEY)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(body))
+	return nil
+}
+
+func addkey(c *cli.Context) error {
+	murl := c.GlobalString("surl")
+	murl = murl + "/evimem/addkey"
+	var b bytes.Buffer
+	var key keyman.HKey
+	key.Key = c.String("hkey")
+	key.Name = c.String("hkeyname")
+	bj, err := json.Marshal(key)
+	if err != nil {
+		return err
+	}
+	b.Write(bj)
+	req, err := http.NewRequest("POST", murl, &b)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("key", KEY)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(body))
+	return nil
+}
+
+func enablekey(c *cli.Context) error {
+	murl := c.GlobalString("surl")
+	murl = murl + "/evimem/enable"
+	var b bytes.Buffer
+	var key keyman.Key
+	key.Key = c.String("hkey")
+	key.Expday = c.Int("day")
+	key.Number = c.Int64("num")
+	bj, err := json.Marshal(key)
+	if err != nil {
+		return err
+	}
+	b.Write(bj)
+	req, err := http.NewRequest("POST", murl, &b)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("key", KEY)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(body))
+	return nil
+}
+
+func getkey(c *cli.Context) error {
+	murl := c.GlobalString("surl")
+	murl = murl + "/evimem/getkey"
+	var b bytes.Buffer
+	var key keyman.HKey
+	key.Key = c.String("hkey")
+	bj, err := json.Marshal(key)
+	if err != nil {
+		return err
+	}
+	b.Write(bj)
+	req, err := http.NewRequest("POST", murl, &b)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("key", KEY)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(body))
+	return nil
+}
+
+func diskey(c *cli.Context) error {
+	murl := c.GlobalString("surl")
+	murl = murl + "/evimem/diskey"
+	var b bytes.Buffer
+	var key keyman.HKey
+	key.Key = c.String("hkey")
+	bj, err := json.Marshal(key)
+	if err != nil {
+		return err
+	}
+	b.Write(bj)
+	req, err := http.NewRequest("POST", murl, &b)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("key", KEY)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(body))
+	return nil
+}
+
+func delkey(c *cli.Context) error {
+	murl := c.GlobalString("surl")
+	murl = murl + "/evimem/delkey"
+	var b bytes.Buffer
+	var key keyman.HKey
+	key.Key = c.String("hkey")
+	bj, err := json.Marshal(key)
+	if err != nil {
+		return err
+	}
+	b.Write(bj)
+	req, err := http.NewRequest("POST", murl, &b)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("key", KEY)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(body))
+	return nil
+}

@@ -15,7 +15,6 @@ var Logger *zap.SugaredLogger
 
 var LISTENADDR string
 var RedisAddr string
-var RedisPool *redis.Pool
 var RedisPass string
 var Keym *keyman.Keyman
 
@@ -40,7 +39,7 @@ func initApp() {
 	Logger = logger.Sugar()
 
 	// init redis
-	RedisPool = &redis.Pool{
+	redisPool := &redis.Pool{
 		MaxIdle:     20,
 		MaxActive:   100,
 		IdleTimeout: 5 * time.Second,
@@ -58,6 +57,9 @@ func initApp() {
 			return con, nil
 		},
 	}
+	Keym = new(keyman.Keyman)
+	Keym.RedisPool = redisPool
+	Keym.Keypre = "keyser"
 
 	Logger.Info("init finish")
 }

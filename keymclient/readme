@@ -1,0 +1,6 @@
+-surl "http://127.0.0.1:8080" -key "mkey" list
+-surl "http://127.0.0.1:8080" -key "mkey" add -hk "hkey" -kn test
+-surl "http://127.0.0.1:8080" -key "mkey" enable -hk "hkey" -day 10 -num 10
+-surl "http://127.0.0.1:8080" -key "mkey" get -hk "hkey"
+-surl "http://127.0.0.1:8080" -key "mkey" dis -hk "hkey"
+-surl "http://127.0.0.1:8080" -key "mkey" del -hk "hkey"

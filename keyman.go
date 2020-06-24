@@ -68,7 +68,7 @@ func (keyman *Keyman) GetManPriv(c *gin.Context) (*ecdsa.PrivateKey, error) {
 	redisConn := keyman.RedisPool.Get()
 	defer redisConn.Close()
 	key := c.GetHeader("key")
-	isExist, err := redis.Int(redisConn.Do("HEXISTS", "mkeys", keyman.keyAddPre(key)))
+	isExist, err := redis.Int(redisConn.Do("HEXISTS", "mkeys", key))
 	if err == redis.ErrNil {
 		return nil, nil
 	} else if err != nil {
@@ -334,11 +334,14 @@ func (keyman *Keyman) Getkey(c *gin.Context) {
 		return
 	}
 
+	expdate := time.Now().Add(time.Duration(sec) * time.Second)
+
 	c.JSON(http.StatusOK, gin.H{
-		"status": "ok",
-		"name":   name,
-		"sec":    sec,
-		"number": number,
+		"status":  "ok",
+		"name":    name,
+		"sec":     sec,
+		"expdate": expdate,
+		"number":  number,
 	})
 
 }
@@ -372,13 +375,16 @@ func (keyman *Keyman) Listkey(c *gin.Context) {
 		return
 	}
 
+	var retkeys []string
 	for i := 0; i < len(keys); i++ {
-		keys[i] = keyman.keyDelPre(keys[i])
+		if strings.HasPrefix(keys[i], keyman.Keypre) {
+			retkeys = append(retkeys, keyman.keyDelPre(keys[i]))
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"status": "ok",
-		"keys":   keys,
+		"keys":   retkeys,
 	})
 
 }
