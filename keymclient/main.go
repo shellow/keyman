@@ -129,6 +129,18 @@ func main() {
 				},
 			},
 		},
+		{
+			Name:     "token",
+			Usage:    "get token",
+			Category: "manage",
+			Action:   gettoken,
+		},
+		{
+			Name:     "address",
+			Usage:    "get key address",
+			Category: "manage",
+			Action:   keyaddr,
+		},
 	}
 
 	err := app.Run(os.Args)
@@ -299,6 +311,52 @@ func delkey(c *cli.Context) error {
 	}
 	b.Write(bj)
 	req, err := http.NewRequest("POST", murl, &b)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("key", KEY)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(body))
+	return nil
+}
+
+func gettoken(c *cli.Context) error {
+	murl := c.GlobalString("surl")
+	req, err := http.NewRequest("PUT", murl, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("key", KEY)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(body))
+	fmt.Println(res.Header.Get("token"))
+	return nil
+}
+
+func keyaddr(c *cli.Context) error {
+	murl := c.GlobalString("surl")
+	murl = murl + "/evimem/keyaddr"
+	req, err := http.NewRequest("GET", murl, nil)
 	if err != nil {
 		return err
 	}

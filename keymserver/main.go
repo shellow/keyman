@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"github.com/bluele/gcache"
 	"github.com/gin-gonic/gin"
 	"github.com/gomodule/redigo/redis"
 	"github.com/shellow/keyman"
@@ -60,6 +61,8 @@ func initApp() {
 	Keym = new(keyman.Keyman)
 	Keym.RedisPool = redisPool
 	Keym.Keypre = "keyser"
+	Keym.TokenCache = gcache.New(2000).LRU().Build()
+	Keym.TokenTime = time.Minute * 15
 
 	Logger.Info("init finish")
 }
@@ -71,12 +74,16 @@ func server() {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.String(http.StatusOK, "Hello World")
 	})
-	router.POST("/evimem/enable", Keym.Enable)
-	router.POST("/evimem/addkey", Keym.Addkey)
-	router.POST("/evimem/delkey", Keym.Delkey)
-	router.POST("/evimem/getkey", Keym.Getkey)
-	router.GET("/evimem/listkey", Keym.Listkey)
-	router.POST("/evimem/diskey", Keym.Diskey)
+	router.GET("/token/test", func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		if Keym.CheckToken(c) == nil {
+			return
+		}
+		c.String(http.StatusOK, "Hello token")
+	})
+	router.PUT("/token", Keym.GetToken)
+	router.PUT("/token2", Keym.GetToken)
+	Keym.InitHandle(router)
 
 	s := &http.Server{
 		Addr:           LISTENADDR,

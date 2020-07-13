@@ -2,6 +2,13 @@ package keyman
 
 import (
 	"crypto/ecdsa"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/bluele/gcache"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-gonic/gin"
 	"github.com/gomodule/redigo/redis"
@@ -12,8 +19,10 @@ import (
 )
 
 type Keyman struct {
-	Keypre    string
-	RedisPool *redis.Pool
+	Keypre     string
+	RedisPool  *redis.Pool
+	TokenCache gcache.Cache
+	TokenTime  time.Duration
 }
 
 type HKey struct {
@@ -27,6 +36,19 @@ type Key struct {
 	Number int64  `form:"number" json:"number" xml:"number"`
 }
 
+type TokenInfo struct {
+	Key   string `form:"key" json:"key" xml:"key" binding:"required"`
+	Route string `form:"Route" json:"Route" xml:"Route"`
+}
+
+func (tokenInfo *TokenInfo) Marshal() ([]byte, error) {
+	return json.Marshal(*tokenInfo)
+}
+
+func (tokenInfo *TokenInfo) Unmarshal(data []byte) error {
+	return json.Unmarshal(data, tokenInfo)
+}
+
 func (keyman *Keyman) keyAddPre(key string) string {
 	return keyman.Keypre + key
 }
@@ -37,6 +59,10 @@ func (keyman *Keyman) keyDelPre(key string) string {
 
 func (keyman *Keyman) StrToPriv(key string) *ecdsa.PrivateKey {
 	key = keyman.keyDelPre(key)
+	return StrToPriv(key)
+}
+
+func StrToPriv(key string) *ecdsa.PrivateKey {
 	priv := new(ecdsa.PrivateKey)
 	d := big.NewInt(0)
 	d.SetString(key, 0)
@@ -44,6 +70,16 @@ func (keyman *Keyman) StrToPriv(key string) *ecdsa.PrivateKey {
 	priv.PublicKey.Curve = crypto.S256()
 	priv.PublicKey.X, priv.PublicKey.Y = priv.PublicKey.Curve.ScalarBaseMult(priv.D.Bytes())
 	return priv
+}
+
+func (keyman *Keyman) InitHandle(router *gin.Engine) {
+	router.POST("/evimem/enable", keyman.Enable)
+	router.POST("/evimem/addkey", keyman.Addkey)
+	router.POST("/evimem/delkey", keyman.Delkey)
+	router.POST("/evimem/getkey", keyman.Getkey)
+	router.GET("/evimem/listkey", keyman.Listkey)
+	router.POST("/evimem/diskey", keyman.Diskey)
+	router.GET("/evimem/keyaddr", keyman.GetKeyAddr)
 }
 
 func (keyman *Keyman) GetPriv(c *gin.Context) (*ecdsa.PrivateKey, error) {
@@ -440,4 +476,223 @@ func (keyman *Keyman) Diskey(c *gin.Context) {
 		"status": "ok",
 		"key":    key.Key,
 	})
+}
+
+func (keyman *Keyman) IsKeyValid(c *gin.Context) bool {
+	priv, err := keyman.GetPriv(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return false
+	}
+	if priv == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "access denied",
+		})
+		return false
+	}
+
+	// is key valid
+	key := priv.D.String()
+	redisConn := keyman.RedisPool.Get()
+	defer redisConn.Close()
+	num, err := redis.Int(redisConn.Do("GET", keyman.keyAddPre(key)))
+	if err == redis.ErrNil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "Expiry date",
+		})
+		return false
+	} else if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return false
+	}
+	if num <= 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "Exceed Times of use",
+		})
+		return false
+	}
+	return true
+}
+
+func (keyman *Keyman) GetKeyAddr(c *gin.Context) {
+	priv, err := keyman.GetPriv(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return
+	}
+	if priv == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "access denied",
+		})
+		return
+	}
+	addr := crypto.PubkeyToAddress(priv.PublicKey)
+	addrStr := AddrToStr(&addr)
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "ok",
+		"address": addrStr,
+	})
+	return
+}
+
+func (keyman *Keyman) DecKeyNum(key string) error {
+	redisConn := keyman.RedisPool.Get()
+	defer redisConn.Close()
+	_, err := redisConn.Do("DECR", keyman.keyAddPre(key))
+	return err
+}
+
+// token route access
+func (keyman *Keyman) GetToken(c *gin.Context) {
+	if !keyman.IsKeyValid(c) {
+		return
+	}
+	key := c.GetHeader("key")
+	priv := keyman.StrToPriv(key)
+	if priv == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "key error",
+		})
+		return
+	}
+	token := MakeToken(priv)
+	tokeninfo := new(TokenInfo)
+	tokeninfo.Key = key
+	tokeninfo.Route = c.Request.URL.Path
+	b, err := tokeninfo.Marshal()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return
+	}
+	keyman.TokenCache.SetWithExpire(token, b, keyman.TokenTime)
+	c.Header("token", token)
+	c.JSON(http.StatusOK, gin.H{
+		"status": "ok",
+	})
+}
+
+func (keyman *Keyman) CheckToken(c *gin.Context) *TokenInfo {
+	token := c.GetHeader("token")
+	b, err := keyman.TokenCache.Get(token)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "token not exist",
+		})
+		return nil
+	}
+
+	tokeninfo := new(TokenInfo)
+	tokeninfo.Unmarshal(b.([]byte))
+
+	if !strings.HasPrefix(c.Request.URL.Path, tokeninfo.Route) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "route denied",
+		})
+		return nil
+	}
+	return tokeninfo
+}
+
+func MakeToken(priv *ecdsa.PrivateKey) string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	sig, err := crypto.Sign(b, priv)
+	if err != nil {
+		return ""
+	}
+	//bs := fmt.Sprintf("%x", b)
+	//sigs := fmt.Sprintf("%x", sig)
+	//ret := bs+sigs
+	return fmt.Sprintf("%x%x", b, sig)
+}
+
+func TokenToPubStr(token string) (string, error) {
+	if len(token) != 194 {
+		return "", errors.New("tooken error")
+	}
+	hash, err := hex.DecodeString(token[0:64])
+	if err != nil {
+		return "", err
+	}
+	sig, err := hex.DecodeString(token[64:194])
+	if err != nil {
+		return "", err
+	}
+	pub, err := crypto.Ecrecover(hash, sig)
+	return fmt.Sprintf("%x", pub), err
+}
+
+func TokenToPub(token string) (*ecdsa.PublicKey, error) {
+	if len(token) != 194 {
+		return nil, errors.New("tooken error")
+	}
+	hash, err := hex.DecodeString(token[0:64])
+	if err != nil {
+		return nil, err
+	}
+	sig, err := hex.DecodeString(token[64:194])
+	if err != nil {
+		return nil, err
+	}
+	pub, err := crypto.SigToPub(hash, sig)
+	if err != nil {
+		return nil, err
+	}
+	return pub, nil
+}
+
+func TokenToAddr(token string) (*common.Address, error) {
+	pub, err := TokenToPub(token)
+	if err != nil {
+		return nil, err
+	}
+	addr := crypto.PubkeyToAddress(*pub)
+	return &addr, nil
+}
+
+func AddrToStr(addr *common.Address) string {
+	return strings.ToLower(strings.Replace(addr.String(), "0x", "", 1))
+}
+
+func TokenToAddrStr(token string) (string, error) {
+	addr, err := TokenToAddr(token)
+	if err != nil {
+		return "", err
+	}
+	addrStr := AddrToStr(addr)
+	return addrStr, nil
+}
+
+func KeyToAddr(key string) *common.Address {
+	priv := StrToPriv(key)
+	if priv == nil {
+		return nil
+	}
+	addr := crypto.PubkeyToAddress(priv.PublicKey)
+	return &addr
+}
+
+func KeyToAddrStr(key string) string {
+	addr := KeyToAddr(key)
+	addrStr := AddrToStr(addr)
+	return addrStr
 }
