@@ -141,6 +141,12 @@ func main() {
 			Category: "manage",
 			Action:   keyaddr,
 		},
+		{
+			Name:     "getownkey",
+			Usage:    "get own key",
+			Category: "manage",
+			Action:   getownkey,
+		},
 	}
 
 	err := app.Run(os.Args)
@@ -151,7 +157,7 @@ func main() {
 
 func listkey(c *cli.Context) error {
 	murl := c.GlobalString("surl")
-	murl = murl + "/evimem/listkey"
+	murl = murl + "/keymem/listkey"
 	req, err := http.NewRequest("GET", murl, nil)
 	if err != nil {
 		return err
@@ -174,7 +180,7 @@ func listkey(c *cli.Context) error {
 
 func addkey(c *cli.Context) error {
 	murl := c.GlobalString("surl")
-	murl = murl + "/evimem/addkey"
+	murl = murl + "/keymem/addkey"
 	var b bytes.Buffer
 	var key keyman.HKey
 	key.Key = c.String("hkey")
@@ -206,7 +212,7 @@ func addkey(c *cli.Context) error {
 
 func enablekey(c *cli.Context) error {
 	murl := c.GlobalString("surl")
-	murl = murl + "/evimem/enable"
+	murl = murl + "/keymem/enable"
 	var b bytes.Buffer
 	var key keyman.Key
 	key.Key = c.String("hkey")
@@ -239,7 +245,7 @@ func enablekey(c *cli.Context) error {
 
 func getkey(c *cli.Context) error {
 	murl := c.GlobalString("surl")
-	murl = murl + "/evimem/getkey"
+	murl = murl + "/keymem/getkey"
 	var b bytes.Buffer
 	var key keyman.HKey
 	key.Key = c.String("hkey")
@@ -270,7 +276,7 @@ func getkey(c *cli.Context) error {
 
 func diskey(c *cli.Context) error {
 	murl := c.GlobalString("surl")
-	murl = murl + "/evimem/diskey"
+	murl = murl + "/keymem/diskey"
 	var b bytes.Buffer
 	var key keyman.HKey
 	key.Key = c.String("hkey")
@@ -301,7 +307,7 @@ func diskey(c *cli.Context) error {
 
 func delkey(c *cli.Context) error {
 	murl := c.GlobalString("surl")
-	murl = murl + "/evimem/delkey"
+	murl = murl + "/keymem/delkey"
 	var b bytes.Buffer
 	var key keyman.HKey
 	key.Key = c.String("hkey")
@@ -355,7 +361,30 @@ func gettoken(c *cli.Context) error {
 
 func keyaddr(c *cli.Context) error {
 	murl := c.GlobalString("surl")
-	murl = murl + "/evimem/keyaddr"
+	murl = murl + "/keymem/keyaddr"
+	req, err := http.NewRequest("GET", murl, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("key", KEY)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(body))
+	return nil
+}
+
+func getownkey(c *cli.Context) error {
+	murl := c.GlobalString("surl")
+	murl = murl + "/keymem/getownkey"
 	req, err := http.NewRequest("GET", murl, nil)
 	if err != nil {
 		return err

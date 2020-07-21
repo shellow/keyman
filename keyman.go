@@ -73,13 +73,14 @@ func StrToPriv(key string) *ecdsa.PrivateKey {
 }
 
 func (keyman *Keyman) InitHandle(router *gin.Engine) {
-	router.POST("/evimem/enable", keyman.Enable)
-	router.POST("/evimem/addkey", keyman.Addkey)
-	router.POST("/evimem/delkey", keyman.Delkey)
-	router.POST("/evimem/getkey", keyman.Getkey)
-	router.GET("/evimem/listkey", keyman.Listkey)
-	router.POST("/evimem/diskey", keyman.Diskey)
-	router.GET("/evimem/keyaddr", keyman.GetKeyAddr)
+	router.POST("/keymem/enable", keyman.Enable)
+	router.POST("/keymem/addkey", keyman.Addkey)
+	router.POST("/keymem/delkey", keyman.Delkey)
+	router.POST("/keymem/getkey", keyman.Getkey)
+	router.GET("/keymem/listkey", keyman.Listkey)
+	router.POST("/keymem/diskey", keyman.Diskey)
+	router.GET("/keymem/keyaddr", keyman.GetKeyAddr)
+	router.GET("/keymem/getownkey", keyman.Getownkey)
 }
 
 func (keyman *Keyman) GetPriv(c *gin.Context) (*ecdsa.PrivateKey, error) {
@@ -476,6 +477,66 @@ func (keyman *Keyman) Diskey(c *gin.Context) {
 		"status": "ok",
 		"key":    key.Key,
 	})
+}
+
+func (keyman *Keyman) Getownkey(c *gin.Context) {
+	if !keyman.IsKeyValid(c) {
+		return
+	}
+
+	key := c.GetHeader("key")
+
+	redisConn := keyman.RedisPool.Get()
+	defer redisConn.Close()
+
+	name, err := redis.String(redisConn.Do("HGET", "keys", keyman.keyAddPre(key)))
+	if err == redis.ErrNil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "key not exist",
+		})
+		return
+	} else if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	sec, err := redis.Int(redisConn.Do("TTL", keyman.keyAddPre(key)))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return
+	}
+	if sec < 0 {
+		sec = 0
+	}
+
+	number, err := redis.Int(redisConn.Do("GET", keyman.keyAddPre(key)))
+	if err == redis.ErrNil {
+		number = 0
+	} else if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	expdate := time.Now().Add(time.Duration(sec) * time.Second)
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "ok",
+		"name":    name,
+		"sec":     sec,
+		"expdate": expdate,
+		"number":  number,
+	})
+
 }
 
 func (keyman *Keyman) IsKeyValid(c *gin.Context) bool {
