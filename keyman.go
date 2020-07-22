@@ -584,6 +584,51 @@ func (keyman *Keyman) IsKeyValid(c *gin.Context) bool {
 	return true
 }
 
+func (keyman *Keyman) IsKeyValidRet(c *gin.Context) (*ecdsa.PrivateKey, bool) {
+	priv, err := keyman.GetPriv(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return priv, false
+	}
+	if priv == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "access denied",
+		})
+		return priv, false
+	}
+
+	// is key valid
+	key := priv.D.String()
+	redisConn := keyman.RedisPool.Get()
+	defer redisConn.Close()
+	num, err := redis.Int(redisConn.Do("GET", keyman.keyAddPre(key)))
+	if err == redis.ErrNil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "Expiry date",
+		})
+		return priv, false
+	} else if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return priv, false
+	}
+	if num <= 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "Exceed Times of use",
+		})
+		return priv, false
+	}
+	return priv, true
+}
+
 func (keyman *Keyman) GetKeyAddr(c *gin.Context) {
 	priv, err := keyman.GetPriv(c)
 	if err != nil {
