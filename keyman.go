@@ -799,6 +799,9 @@ func KeyToAddr(key string) *common.Address {
 
 func KeyToAddrStr(key string) string {
 	addr := KeyToAddr(key)
+	if addr == nil {
+		return ""
+	}
 	addrStr := AddrToStr(addr)
 	return addrStr
 }
