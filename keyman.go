@@ -718,6 +718,30 @@ func (keyman *Keyman) CheckToken(c *gin.Context) *TokenInfo {
 	return tokeninfo
 }
 
+func (keyman *Keyman) CheckGetToken(c *gin.Context) *TokenInfo {
+	token, _ := c.GetQuery("token")
+	b, err := keyman.TokenCache.Get(token)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "token not exist",
+		})
+		return nil
+	}
+
+	tokeninfo := new(TokenInfo)
+	tokeninfo.Unmarshal(b.([]byte))
+
+	if !strings.HasPrefix(c.Request.URL.Path, tokeninfo.Route) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "route denied",
+		})
+		return nil
+	}
+	return tokeninfo
+}
+
 func MakeToken(priv *ecdsa.PrivateKey) string {
 	b := make([]byte, 32)
 	rand.Read(b)
