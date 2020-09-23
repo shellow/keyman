@@ -555,6 +555,19 @@ func (keyman *Keyman) CheckKey(key string) error {
 	return nil
 }
 
+func (keyman *Keyman) CheckKeyOnlytime(key string) error {
+	// is key valid
+	redisConn := keyman.RedisPool.Get()
+	defer redisConn.Close()
+	_, err := redis.Int(redisConn.Do("GET", keyman.keyAddPre(key)))
+	if err == redis.ErrNil {
+		return errors.New("Expiry date")
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (keyman *Keyman) IsKeyValid(c *gin.Context) bool {
 	priv, err := keyman.GetPriv(c)
 	if err != nil {
@@ -575,6 +588,36 @@ func (keyman *Keyman) IsKeyValid(c *gin.Context) bool {
 	// is key valid
 	key := priv.D.String()
 	err = keyman.CheckKey(key)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return false
+	}
+	return true
+}
+
+func (keyman *Keyman) IsKeyValidOnlytime(c *gin.Context) bool {
+	priv, err := keyman.GetPriv(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return false
+	}
+	if priv == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "access denied",
+		})
+		return false
+	}
+
+	// is key valid
+	key := priv.D.String()
+	err = keyman.CheckKeyOnlytime(key)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "error",
