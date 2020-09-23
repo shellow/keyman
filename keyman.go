@@ -539,6 +539,22 @@ func (keyman *Keyman) Getownkey(c *gin.Context) {
 
 }
 
+func (keyman *Keyman) CheckKey(key string) error {
+	// is key valid
+	redisConn := keyman.RedisPool.Get()
+	defer redisConn.Close()
+	num, err := redis.Int(redisConn.Do("GET", keyman.keyAddPre(key)))
+	if err == redis.ErrNil {
+		return errors.New("Expiry date")
+	} else if err != nil {
+		return err
+	}
+	if num <= 0 {
+		return errors.New("Exceed quota of use")
+	}
+	return nil
+}
+
 func (keyman *Keyman) IsKeyValid(c *gin.Context) bool {
 	priv, err := keyman.GetPriv(c)
 	if err != nil {
@@ -558,26 +574,11 @@ func (keyman *Keyman) IsKeyValid(c *gin.Context) bool {
 
 	// is key valid
 	key := priv.D.String()
-	redisConn := keyman.RedisPool.Get()
-	defer redisConn.Close()
-	num, err := redis.Int(redisConn.Do("GET", keyman.keyAddPre(key)))
-	if err == redis.ErrNil {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "error",
-			"message": "Expiry date",
-		})
-		return false
-	} else if err != nil {
+	err = keyman.CheckKey(key)
+	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "error",
 			"message": err.Error(),
-		})
-		return false
-	}
-	if num <= 0 {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "error",
-			"message": "Exceed Times of use",
 		})
 		return false
 	}
@@ -603,26 +604,11 @@ func (keyman *Keyman) IsKeyValidRet(c *gin.Context) (*ecdsa.PrivateKey, bool) {
 
 	// is key valid
 	key := priv.D.String()
-	redisConn := keyman.RedisPool.Get()
-	defer redisConn.Close()
-	num, err := redis.Int(redisConn.Do("GET", keyman.keyAddPre(key)))
-	if err == redis.ErrNil {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "error",
-			"message": "Expiry date",
-		})
-		return priv, false
-	} else if err != nil {
+	err = keyman.CheckKey(key)
+	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "error",
 			"message": err.Error(),
-		})
-		return priv, false
-	}
-	if num <= 0 {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "error",
-			"message": "Exceed Times of use",
 		})
 		return priv, false
 	}
@@ -666,7 +652,9 @@ func (keyman *Keyman) GetToken(c *gin.Context) {
 	if !keyman.IsKeyValid(c) {
 		return
 	}
+
 	key := c.GetHeader("key")
+
 	priv := keyman.StrToPriv(key)
 	if priv == nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -675,6 +663,15 @@ func (keyman *Keyman) GetToken(c *gin.Context) {
 		})
 		return
 	}
+
+	err := keyman.CheckKey(key)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+	}
+
 	token := MakeToken(priv)
 	tokeninfo := new(TokenInfo)
 	tokeninfo.Key = key
@@ -715,6 +712,16 @@ func (keyman *Keyman) CheckToken(c *gin.Context) *TokenInfo {
 		})
 		return nil
 	}
+
+	err = keyman.CheckKey(tokeninfo.Key)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return nil
+	}
+
 	return tokeninfo
 }
 
@@ -739,6 +746,16 @@ func (keyman *Keyman) CheckGetToken(c *gin.Context) *TokenInfo {
 		})
 		return nil
 	}
+
+	err = keyman.CheckKey(tokeninfo.Key)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return nil
+	}
+
 	return tokeninfo
 }
 
