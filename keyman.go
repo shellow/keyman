@@ -14,6 +14,7 @@ import (
 	"github.com/gomodule/redigo/redis"
 	"math/big"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -53,6 +54,10 @@ func (keyman *Keyman) keyAddPre(key string) string {
 	return keyman.Keypre + key
 }
 
+func genCountKey(path, key string) string {
+	return path + "-" + key
+}
+
 func (keyman *Keyman) keyDelPre(key string) string {
 	return strings.Replace(key, keyman.Keypre, "", 1)
 }
@@ -81,6 +86,10 @@ func (keyman *Keyman) InitHandle(router *gin.Engine) {
 	router.POST("/keymem/diskey", keyman.Diskey)
 	router.GET("/keymem/keyaddr", keyman.GetKeyAddr)
 	router.GET("/keymem/getownkey", keyman.Getownkey)
+
+	router.POST("/keymem/addcount", keyman.AddCount)
+	router.POST("/keymem/getcount", keyman.GetCount)
+	router.GET("/keymem/getkeyexpdate", keyman.GetKeyExpdate)
 }
 
 func (keyman *Keyman) GetPriv(c *gin.Context) (*ecdsa.PrivateKey, error) {
@@ -539,6 +548,164 @@ func (keyman *Keyman) Getownkey(c *gin.Context) {
 
 }
 
+func (keyman *Keyman) AddCount(c *gin.Context) {
+	priv, err := keyman.GetManPriv(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return
+	}
+	if priv == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "access denied",
+		})
+		return
+	}
+
+	key := c.Request.FormValue("key")
+	if strings.EqualFold("", key) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "require key",
+		})
+		return
+	}
+
+	reqpath := c.Request.FormValue("reqpath")
+	if strings.EqualFold("", reqpath) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "require reqpath",
+		})
+		return
+	}
+
+	count := c.Request.FormValue("count")
+	if strings.EqualFold("", count) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "require count",
+		})
+		return
+	}
+
+	countInt, err := strconv.Atoi(count)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "count error",
+		})
+		return
+	}
+
+	redisConn := keyman.RedisPool.Get()
+	defer redisConn.Close()
+	isExist, err := redis.Int(redisConn.Do("HEXISTS", "keys", keyman.keyAddPre(key)))
+	if err == redis.ErrNil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "key not exist",
+		})
+		return
+	} else if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return
+	}
+	if isExist == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "key not exist",
+		})
+		return
+	}
+
+	_, err = redisConn.Do("INCRBY", genCountKey(reqpath, key), countInt)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "ok",
+	})
+}
+
+func (keyman *Keyman) GetCount(c *gin.Context) {
+	if !keyman.IsKeyValid(c) {
+		return
+	}
+
+	key := c.GetHeader("key")
+
+	reqpath := c.Request.FormValue("reqpath")
+	if strings.EqualFold("", reqpath) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "require reqpath",
+		})
+		return
+	}
+
+	redisConn := keyman.RedisPool.Get()
+	defer redisConn.Close()
+
+	number, err := redis.Int(redisConn.Do("GET", genCountKey(reqpath, key)))
+	if err == redis.ErrNil {
+		number = 0
+	} else if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "ok",
+		"number": number,
+	})
+}
+
+func (keyman *Keyman) GetKeyExpdate(c *gin.Context) {
+	if !keyman.IsKeyValid(c) {
+		return
+	}
+
+	key := c.GetHeader("key")
+
+	redisConn := keyman.RedisPool.Get()
+	defer redisConn.Close()
+
+	sec, err := redis.Int(redisConn.Do("TTL", keyman.keyAddPre(key)))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return
+	}
+	if sec < 0 {
+		sec = 0
+	}
+
+	expdate := time.Now().Add(time.Duration(sec) * time.Second)
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "ok",
+		"sec":     sec,
+		"expdate": expdate,
+	})
+}
+
 func (keyman *Keyman) CheckKey(key string) error {
 	// is key valid
 	redisConn := keyman.RedisPool.Get()
@@ -551,6 +718,30 @@ func (keyman *Keyman) CheckKey(key string) error {
 	}
 	if num <= 0 {
 		return errors.New("Exceed quota of use")
+	}
+	return nil
+}
+
+func (keyman *Keyman) CheckPathKeyCount(reqpath, key string) error {
+	redisConn := keyman.RedisPool.Get()
+	defer redisConn.Close()
+	number, err := redis.Int(redisConn.Do("GET", genCountKey(reqpath, key)))
+	if err != nil {
+		return errors.New("Exceed quota of use")
+	}
+	if number <= 0 {
+		return errors.New("Exceed quota of use")
+	}
+	return err
+}
+
+func (keyman *Keyman) DecPathKeyCount(reqpath, key string) error {
+	redisConn := keyman.RedisPool.Get()
+	defer redisConn.Close()
+
+	_, err := redisConn.Do("DECR", genCountKey(reqpath, key))
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -656,6 +847,36 @@ func (keyman *Keyman) IsKeyValidRet(c *gin.Context) (*ecdsa.PrivateKey, bool) {
 		return priv, false
 	}
 	return priv, true
+}
+
+func (keyman *Keyman) IsPathKeyValid(c *gin.Context) bool {
+	priv, err := keyman.GetPriv(c)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return false
+	}
+	if priv == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "access denied",
+		})
+		return false
+	}
+
+	// is key valid
+	key := priv.D.String()
+	err = keyman.CheckPathKeyCount(c.Request.URL.Path, key)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return false
+	}
+	return true
 }
 
 func (keyman *Keyman) GetKeyAddr(c *gin.Context) {

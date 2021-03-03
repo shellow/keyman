@@ -9,8 +9,10 @@ import (
 	"github.com/urfave/cli"
 	"go.uber.org/zap"
 	"io/ioutil"
+	"mime/multipart"
 	"net/http"
 	"os"
+	"strconv"
 )
 
 var Logger *zap.SugaredLogger
@@ -146,6 +148,48 @@ func main() {
 			Usage:    "get own key",
 			Category: "manage",
 			Action:   getownkey,
+		},
+		{
+			Name:     "addcount",
+			Usage:    "add key path count",
+			Category: "manage",
+			Action:   addcount,
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:  "hkey, hk",
+					Value: "1",
+					Usage: "key for add",
+				},
+				cli.StringFlag{
+					Name:  "reqpath",
+					Value: "/test",
+					Usage: "uri path",
+				},
+				cli.IntFlag{
+					Name:  "count",
+					Value: 10,
+					Usage: "quota for use",
+				},
+			},
+		},
+		{
+			Name:     "getcount",
+			Usage:    "get key path count",
+			Category: "manage",
+			Action:   getcount,
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:  "reqpath",
+					Value: "/test",
+					Usage: "uri path",
+				},
+			},
+		},
+		{
+			Name:     "getkeyexpdate",
+			Usage:    "get key expdate",
+			Category: "manage",
+			Action:   getkeyexpdate,
 		},
 	}
 
@@ -385,6 +429,113 @@ func keyaddr(c *cli.Context) error {
 func getownkey(c *cli.Context) error {
 	murl := c.GlobalString("surl")
 	murl = murl + "/keymem/getownkey"
+	req, err := http.NewRequest("GET", murl, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("key", KEY)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(body))
+	return nil
+}
+
+func addcount(c *cli.Context) error {
+	murl := c.GlobalString("surl")
+	murl = murl + "/keymem/addcount"
+
+	key := c.String("hkey")
+	reqpath := c.String("reqpath")
+	count := c.Int("count")
+
+	method := "POST"
+
+	payload := &bytes.Buffer{}
+	writer := multipart.NewWriter(payload)
+	_ = writer.WriteField("key", key)
+	_ = writer.WriteField("reqpath", reqpath)
+	_ = writer.WriteField("count", strconv.Itoa(count))
+	err := writer.Close()
+	if err != nil {
+		return err
+	}
+
+	client := &http.Client{}
+	req, err := http.NewRequest(method, murl, payload)
+
+	if err != nil {
+		return err
+	}
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("key", KEY)
+
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(body))
+	return nil
+}
+
+func getcount(c *cli.Context) error {
+	murl := c.GlobalString("surl")
+	murl = murl + "/keymem/getcount"
+
+	reqpath := c.String("reqpath")
+
+	method := "POST"
+
+	payload := &bytes.Buffer{}
+	writer := multipart.NewWriter(payload)
+	_ = writer.WriteField("reqpath", reqpath)
+	err := writer.Close()
+	if err != nil {
+		return err
+	}
+
+	client := &http.Client{}
+	req, err := http.NewRequest(method, murl, payload)
+
+	if err != nil {
+		return err
+	}
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("key", KEY)
+
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(body))
+	return nil
+}
+
+func getkeyexpdate(c *cli.Context) error {
+	murl := c.GlobalString("surl")
+	murl = murl + "/keymem/getkeyexpdate"
 	req, err := http.NewRequest("GET", murl, nil)
 	if err != nil {
 		return err
