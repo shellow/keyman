@@ -746,6 +746,19 @@ func (keyman *Keyman) DecPathKeyCount(reqpath, key string) error {
 	return nil
 }
 
+func (keyman *Keyman) DecPathKeyCountHandle(c *gin.Context) bool {
+	key := c.GetHeader("key")
+	err := keyman.DecPathKeyCount(c.Request.URL.Path, key)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "error",
+			"message": "dec count failed",
+		})
+		return false
+	}
+	return true
+}
+
 func (keyman *Keyman) CheckKeyOnlytime(key string) error {
 	// is key valid
 	redisConn := keyman.RedisPool.Get()
